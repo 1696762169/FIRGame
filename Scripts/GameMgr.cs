@@ -42,7 +42,6 @@ public class GameMgr : MonoBehaviour
         CurPlayer = startPlayer;
         CurPiece = E_PieceType.black;
         Chessboard.Instance.gameObject.GetComponent<UIButton>().enabled = CurPlayer == E_Player.player;
-
         // 开始AI第一步
         if (CurPlayer == E_Player.AI)
         {

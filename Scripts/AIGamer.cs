@@ -15,7 +15,7 @@ public class AIGamer
         Init();
 
         // 初始化特征更新委托数组
-        UpdateFeature = new UnityAction<int, int, int>[2, 2, 4];
+        UpdateFeature = new UnityAction<int, int, int, int>[2, 2, 4];
         UpdateFeature[0, 0, 1] = UF_C_P_1;
         UpdateFeature[0, 0, 2] = UF_C_P_2;
         UpdateFeature[0, 0, 3] = UF_C_P_3;
@@ -37,9 +37,13 @@ public class AIGamer
     // 用于内部计算的棋盘状态
     protected E_Cross[,] board;
     // 用于内部计算的棋盘特征
-    protected Features fs;
+    protected FeatureInfo AIFi;
+    protected FeatureInfo playerFi;
     // 记录本次落子前的棋盘特征
-    protected Features originFs;
+    protected FeatureInfo originAIFi;
+    protected FeatureInfo originPlayerFi;
+    // 棋盘行列数
+    protected const int lineNum = Chessboard.lineNum;
 
     // 标记是否创建过棋子
     protected bool playing;
@@ -62,18 +66,19 @@ public class AIGamer
     /// 坐标1: 0: 创建棋子 1: 销毁棋子
     /// 坐标2: 0: 正向偏移 1: 负向偏移
     /// 坐标3: 偏移量
-    protected UnityAction<int, int, int>[,,] UpdateFeature;
+    protected UnityAction<int, int, int, int>[,,] UpdateFeature;
 
     /// <summary>
     /// 初始化属性
     /// </summary>
     public void Init()
     {
-        board = new E_Cross[Chessboard.lineNum, Chessboard.lineNum];
-        for (int i = 0; i < Chessboard.lineNum; ++i)
-            for (int j = 0; j < Chessboard.lineNum; ++j)
+        board = new E_Cross[lineNum, lineNum];
+        for (int i = 0; i < lineNum; ++i)
+            for (int j = 0; j < lineNum; ++j)
                 board[i, j] = E_Cross.none;
-        fs = new Features();
+        AIFi = new FeatureInfo();
+        playerFi = new FeatureInfo();
         playing = false;
     }
 
@@ -115,7 +120,8 @@ public class AIGamer
     public Vector2Int Go()
     {
         // 记录棋盘特征
-        originFs = new Features(fs);
+        originAIFi = new FeatureInfo(AIFi);
+        originPlayerFi = new FeatureInfo(playerFi);
         // 随机落子
         Vector2Int pos = new Vector2Int(Random.Range(0, 14), Random.Range(0, 14));
         while(board[pos.x, pos.y] != E_Cross.none)
@@ -125,7 +131,8 @@ public class AIGamer
         }
 
         // 将棋盘特征与计算前的特征同步
-        fs = new Features(originFs);
+        AIFi = new FeatureInfo(originAIFi);
+        playerFi = new FeatureInfo(originPlayerFi);
         return pos;
     }
 
@@ -154,10 +161,10 @@ public class AIGamer
     {
         int[,] border = new int[4, 2];
         // 横向边界
-        border[dir_hor, 0] = x + 4 >= Chessboard.lineNum ? Chessboard.lineNum - x - 1 : 4;
+        border[dir_hor, 0] = x + 4 >= lineNum ? lineNum - x - 1 : 4;
         border[dir_hor, 1] = x < 4 ? x : 4;
         // 纵向边界
-        border[dir_ver, 0] = y + 4 >= Chessboard.lineNum ? Chessboard.lineNum - y - 1 : 4;
+        border[dir_ver, 0] = y + 4 >= lineNum ? lineNum - y - 1 : 4;
         border[dir_ver, 1] = y < 4 ? y : 4;
         // 左下-右上边界
         border[dir_div, 0] = border[dir_hor, 0] < border[dir_ver, 0] ? border[dir_hor, 0] : border[dir_ver, 0];
@@ -220,23 +227,170 @@ public class AIGamer
         int offset;
         int c = create ? 0 : 1;
 
-        // 遍历正负向
-        for (int nega = 0; nega < 2; ++nega)
-        {
-            // 横向
-            for (offset = 1; offset <= ni.border[dir_hor, nega]; ++offset)
-                UpdateFeature[c, nega, offset](x + offset, y, ni.nearby[dir_hor]);
-            // 纵向
-            for (offset = 1; offset <= ni.border[dir_ver, 0]; ++offset)
-                UpdateFeature[c, nega, offset](x, y + offset, ni.nearby[dir_ver]);
-            // 左下-右上
-            for (offset = 1; offset <= ni.border[dir_div, 0]; ++offset)
-                UpdateFeature[c, nega, offset](x + offset, y + offset, ni.nearby[dir_div]);
-            // 左上-右下
-            for (offset = 1; offset <= ni.border[dir_back, 0]; ++offset)
-                UpdateFeature[c, nega, offset](x + offset, y - offset, ni.nearby[dir_back]);
-        }
+        //int lineMax;
+        //if (dir == dir_hor || dir == dir_ver)
+        //    lineMax = lineNum;
+        //else
+        //    lineMax = FeatureInfo.lineMax;
+
+        //// 遍历正负向
+        //for (int nega = 0; nega < 2; ++nega)
+        //{
+        //    // 横向
+        //    for (offset = 1; offset <= ni.border[dir_hor, nega]; ++offset)
+        //        UpdateFeature[c, nega, offset](x + offset, y, dir_hor, ni.nearby[dir_hor]);
+        //    // 纵向
+        //    for (offset = 1; offset <= ni.border[dir_ver, 0]; ++offset)
+        //        UpdateFeature[c, nega, offset](x, y + offset, dir_ver, ni.nearby[dir_ver]);
+        //    // 左下-右上
+        //    for (offset = 1; offset <= ni.border[dir_div, 0]; ++offset)
+        //        UpdateFeature[c, nega, offset](x + offset, y + offset, dir_div, ni.nearby[dir_div]);
+        //    // 左上-右下
+        //    for (offset = 1; offset <= ni.border[dir_back, 0]; ++offset)
+        //        UpdateFeature[c, nega, offset](x + offset, y - offset, dir_back, ni.nearby[dir_back]);
+        //}
     }
+
+
+
+    /// <summary>
+    /// 更新某方向上一条直线的全部特征
+    /// </summary>
+    /// <param name="side">待更新的特征归属方</param>
+    /// <param name="dir">直线方向</param>
+    /// <param name="line">行列数</param>
+    /// <param name="pieces">该条直线上的所有棋子分布情况</param>
+    /// 此时已将棋盘范围外与存在敌方棋子当作相同情况
+    /// 且pieces尾部增加一个“敌方棋子”方便判断
+    protected void UpdateLineFeatures(E_Player side, int dir, int line, E_Cross[] pieces)
+    {
+        // 待更新数组
+        FeatureInfo fi = side == E_Player.AI ? AIFi : playerFi;
+        // 对手棋子
+        E_Cross enemy = side == E_Player.AI ? E_Cross.player : E_Cross.AI;
+
+        // 将该行棋子按E_Cross.enemy与E_Feature.dead划分为多段 记录其起点与终点后一个位置
+        List<Vector2Int> saps = new List<Vector2Int>();
+        Vector2Int cur = new Vector2Int(-1, -1);
+        bool newSap = true;
+        for (int loca = 0; loca < lineNum; ++loca)
+        {
+            if (pieces[loca] == enemy || fi[dir, line, loca].type == E_FeatureType.dead)
+            {
+                if (cur.x != -1)
+                {
+                    saps.Add(cur);
+                    cur.x = -1;
+                }
+                newSap = true;
+            }
+            else
+            {
+                if (newSap)
+                {
+                    cur = new Vector2Int(loca, loca + 1);
+                    newSap = false;
+                }
+                else
+                    ++cur.y;
+            }
+        }
+
+        // 将长度小于五的分段设为dead 并移除分段
+        for (int i = saps.Count - 1; i >= 0; --i)
+        {
+            if (saps[i].y - saps[i].x < 5)
+            {
+                for (int loca = saps[i].x; loca < saps[i].y; ++loca)
+                    fi[dir, line, loca].type = E_FeatureType.dead;
+                saps.RemoveAt(i);
+            }
+        }
+       
+        // 分别更新每个分段
+        foreach (Vector2Int sap in saps)
+        {
+            // 该分段总空间
+            int space = sap.y - sap.x;
+            for (int loca = sap.x; loca < sap.y; ++loca)
+            {
+                // 没有棋子的位置不可能作为特征起始点
+                if (pieces[loca] == E_Cross.none)
+                {
+                    fi[dir, line, loca].type = E_FeatureType.none;
+                    continue;
+                }
+
+                // 将该特征附近的空间置为该分段总空间
+                fi[dir, line, loca].space = space;
+
+                // 该分段总空间与剩余空间 接下来按剩余空间搜索
+                int lastSpace = sap.y - loca;
+
+                // 需要1空间
+                fi[dir, line, loca].type = E_FeatureType.single;
+                fi[dir, line, loca].blocked = loca == 0 || pieces[loca - 1] == enemy || pieces[loca + 1] == enemy;
+
+                // 需要2空间
+                if (lastSpace >= 2 && pieces[loca + 1] != E_Cross.none)
+                {
+                    // 连二
+                    fi[dir, line, loca].type = E_FeatureType.near2;
+                    fi[dir, line, loca].blocked |= pieces[loca + 2] == enemy;
+                }
+
+                // 需要3空间
+                if (lastSpace >= 3 && pieces[loca + 2] != E_Cross.none)
+                {
+                    // 小跳二
+                    if (pieces[loca + 1] == E_Cross.none)
+                        fi[dir, line, loca].type = E_FeatureType.jump2;
+                    // 连三
+                    else
+                        fi[dir, line, loca].type = E_FeatureType.near3;
+                    fi[dir, line, loca].blocked |= pieces[loca + 3] == enemy;
+                }
+
+                // 需要4空间
+                if (lastSpace >= 4 && pieces[loca + 3] != E_Cross.none)
+                {
+                    // 大跳二
+                    if (pieces[loca + 1] == E_Cross.none && pieces[loca + 2] == E_Cross.none)
+                        fi[dir, line, loca].type = E_FeatureType.far2;
+                    // 跳三
+                    else if (pieces[loca + 1] != pieces[loca + 2])
+                        fi[dir, line, loca].type = E_FeatureType.jump3;
+                    // 连四
+                    else
+                        fi[dir, line, loca].type = E_FeatureType.near4;
+                    fi[dir, line, loca].blocked |= pieces[loca + 4] == enemy;
+                }
+
+                // 需要5空间
+                if (lastSpace >= 5 && pieces[loca + 4] != E_Cross.none)
+                {
+                    // 统计中间三个位置的空位数
+                    int blankCount = 0;
+                    for (int i = 1; i <= 3; ++i)
+                        blankCount += pieces[loca + i] == E_Cross.none ? 1 : 0;
+
+                    // 跳四
+                    if (blankCount == 1)
+                        fi[dir, line, loca].type = E_FeatureType.jump4;
+                    // 连五
+                    if (blankCount == 0)
+                        fi[dir, line, loca].type = E_FeatureType.five;
+                    fi[dir, line, loca].blocked |= pieces[loca + 5] == enemy;
+                }
+
+                // 由于此位置已经产生了特征起始点 故后续的连续相同棋子都无需考虑
+                while (++loca < sap.y && pieces[loca] != E_Cross.none)
+                    fi[dir, line, loca].type = E_FeatureType.none;
+            }// end of each sap
+        }// end of foreach statement
+    }
+
+
 
     /// 以下为特征更新函数(UpdateFeature)
     /// C: 新建棋子(create) D: 销毁棋子(destroy)
@@ -244,68 +398,69 @@ public class AIGamer
     /// 数字表示相对原位置偏移量
     /// x: 待更新位置横坐标
     /// y: 待更新位置纵坐标
+    /// dir: 相对方向
     /// nearby: 原位置该方向上的棋子排布
-    protected void UF_C_P_1(int x, int y, int nearby)
+    protected void UF_C_P_1(int x, int y, int dir, int nearby)
+    {
+        
+    }
+    protected void UF_C_P_2(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_P_2(int x, int y, int nearby)
+    protected void UF_C_P_3(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_P_3(int x, int y, int nearby)
+    protected void UF_C_P_4(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_P_4(int x, int y, int nearby)
+    protected void UF_C_N_1(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_N_1(int x, int y, int nearby)
+    protected void UF_C_N_2(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_N_2(int x, int y, int nearby)
+    protected void UF_C_N_3(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_N_3(int x, int y, int nearby)
+    protected void UF_C_N_4(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_C_N_4(int x, int y, int nearby)
+    protected void UF_D_P_1(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_P_1(int x, int y, int nearby)
+    protected void UF_D_P_2(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_P_2(int x, int y, int nearby)
+    protected void UF_D_P_3(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_P_3(int x, int y, int nearby)
+    protected void UF_D_P_4(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_P_4(int x, int y, int nearby)
+    protected void UF_D_N_1(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_N_1(int x, int y, int nearby)
+    protected void UF_D_N_2(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_N_2(int x, int y, int nearby)
+    protected void UF_D_N_3(int x, int y, int dir, int nearby)
     {
 
     }
-    protected void UF_D_N_3(int x, int y, int nearby)
-    {
-
-    }
-    protected void UF_D_N_4(int x, int y, int nearby)
+    protected void UF_D_N_4(int x, int y, int dir, int nearby)
     {
 
     }
