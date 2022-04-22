@@ -1,5 +1,6 @@
 //#define DEBUG_FEATURE
 #define DEBUG_EVAL
+#define DEBUG_SEARCH
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -13,16 +14,22 @@ public class AIGamer
     public static AIGamer Instance => instance;
     private AIGamer() => Init();
 
+    // 棋盘行列数
+    protected const int lineNum = Chessboard.lineNum;
     // 用于内部计算的棋盘状态
     protected E_Cross[,] board;
+    // 下一步行棋位置
+    protected Vector2Int nextPos;
+
     // 用于内部计算的棋盘特征
     protected FeatureInfo AIFi;
     protected FeatureInfo playerFi;
     // 记录本次落子前的棋盘特征
     protected FeatureInfo originAIFi;
     protected FeatureInfo originPlayerFi;
-    // 棋盘行列数
-    protected const int lineNum = Chessboard.lineNum;
+
+    // 搜索最大深度
+    protected int maxDepth;
 
     // 标记是否创建过棋子
     protected bool playing;
@@ -47,6 +54,7 @@ public class AIGamer
     /// </summary>
     public void Init()
     {
+        maxDepth = GameMgr.Instance.maxDepth;
         board = new E_Cross[lineNum, lineNum];
         for (int i = 0; i < lineNum; ++i)
             for (int j = 0; j < lineNum; ++j)
@@ -74,7 +82,8 @@ public class AIGamer
         UpdateAllFeatures(x, y);
 
         // 调用评价函数判断是否结束游戏
-        Eval();
+        if (create && Mathf.Abs(Eval()) > (int)E_FeatureType.five / 2)
+            GoalTest = true;
     }
 
     /// <summary>
@@ -88,36 +97,38 @@ public class AIGamer
         originPlayerFi = new FeatureInfo(playerFi);
 
         // 一层搜索落子
-        int maxEval = int.MinValue;
-        int curEval;
-        Vector2Int pos = new Vector2Int();
-        for (int i = 0; i < lineNum; ++i)
-            for (int j = 0; j < lineNum; ++j)
-            {
-                if (board[i, j] == E_Cross.none)
-                {
-                    board[i, j] = E_Cross.AI;
-                    UpdateAllFeatures(i, j);
-                    curEval = Eval();
-                    if (curEval > maxEval)
-                    {
-                        maxEval = curEval;
-                        pos.x = i;
-                        pos.y = j;
-                    }
-                    board[i, j] = E_Cross.none;
-                    UpdateAllFeatures(i, j);
-                }
-            }
+        //int maxEval = int.MinValue;
+        //int curEval;
+        //Vector2Int pos = new Vector2Int();
+        //for (int i = 0; i < lineNum; ++i)
+        //{
+        //    for (int j = 0; j < lineNum; ++j)
+        //    {
+        //        if (board[i, j] == E_Cross.none)
+        //        {
+        //            board[i, j] = E_Cross.AI;
+        //            UpdateAllFeatures(i, j);
+        //            curEval = Eval();
+        //            if (curEval > maxEval)
+        //            {
+        //                maxEval = curEval;
+        //                pos.x = i;
+        //                pos.y = j;
+        //            }
+        //            board[i, j] = E_Cross.none;
+        //            UpdateAllFeatures(i, j);
+        //        }
+        //    }
+        //}
 
+        int maxEval = AlphaBetaSearch();
         // 将棋盘特征与计算前的特征同步
         AIFi = new FeatureInfo(originAIFi);
         playerFi = new FeatureInfo(originPlayerFi);
 #if DEBUG_EVAL
-        
-        Debug.Log(string.Format("最大评价值：{0, -10}最佳位置：{1}", maxEval, pos));
+        Debug.Log(string.Format("最大评价值：{0, -10}最佳位置：{1}", maxEval, nextPos));
 #endif
-        return pos;
+        return nextPos;
     }
 
     /// <summary>
@@ -125,10 +136,8 @@ public class AIGamer
     /// </summary>
     protected int Eval()
     {
-        int eval = Eval(E_Player.AI) - Eval(E_Player.player);
-        if (Mathf.Abs(eval) > (int)E_FeatureType.five / 2)  // 评价函数绝对值较大时表示游戏终止
-            GoalTest = true;
-        return eval;
+        return Eval(E_Player.AI) - 20 * Eval(E_Player.player);
+        
     }
     /// <summary>
     /// 统计某一方的评价函数值
@@ -141,8 +150,8 @@ public class AIGamer
         {
             switch (f.type)
             {
-            case E_FeatureType.dead:
             case E_FeatureType.none:
+            case E_FeatureType.dead:
                 continue;
             default:
                 eval += (int)f.type * (f.blocked ? 1 : Feature.liveScale);
@@ -262,13 +271,13 @@ public class AIGamer
             cur.x = -1;
         }
 
-        // 将长度小于五的分段设为dead 并移除分段
+        // 将长度小于五的分段设为none 并移除分段
         for (int i = saps.Count - 1; i >= 0; --i)
         {
             if (saps[i].y - saps[i].x < 5)
             {
                 for (int loca = saps[i].x; loca < saps[i].y; ++loca)
-                    fi[dir, line, loca].type = E_FeatureType.dead;
+                    fi[dir, line, loca].type = E_FeatureType.none;
                 saps.RemoveAt(i);
             }
         }
@@ -375,8 +384,67 @@ public class AIGamer
         }// end of foreach statement
     }
 
-    protected float MaxValue()
+    /* 以下为α-β剪枝搜索相关函数 */
+    protected int AlphaBetaSearch()
     {
-        throw new System.NotImplementedException();
+        return MaxValue(int.MinValue, int.MaxValue, 0);
+    }
+    protected int MaxValue(int alpha, int beta, int depth)
+    {
+        if (depth >= maxDepth)
+            return Eval();
+        int eval = int.MinValue;
+        int curEval;
+        for (int i = 0; i < lineNum; ++i)
+        {
+            for (int j = 0; j < lineNum; ++j)
+            {
+                if (board[i, j] == E_Cross.none)
+                {
+                    board[i, j] = E_Cross.AI;
+                    UpdateAllFeatures(i, j);
+                    curEval = MinValue(alpha, beta, depth + 1);
+                    if (curEval > eval)
+                    {
+                        eval = curEval;
+                        nextPos.x = i;
+                        nextPos.y = j;
+#if DEBUG_SEARCH
+                        Debug.Log(string.Format("当前最大评价函数：{0, -10}当前位置{1}", eval, nextPos));
+#endif
+                    }
+                    board[i, j] = E_Cross.none;
+                    UpdateAllFeatures(i, j);
+                    if (eval >= beta)
+                        return eval;
+                    alpha = Mathf.Max(alpha, eval);
+                }
+            }
+        }
+        return eval;
+    }
+    protected int MinValue(int alpha, int beta, int depth)
+    {
+        if (depth >= maxDepth)
+            return Eval();
+        int eval = int.MaxValue;
+        for (int i = 0; i < lineNum; ++i)
+        {
+            for (int j = 0; j < lineNum; ++j)
+            {
+                if (board[i, j] == E_Cross.none)
+                {
+                    board[i, j] = E_Cross.player;
+                    UpdateAllFeatures(i, j);
+                    eval = Mathf.Min(MaxValue(alpha, beta, depth + 1), eval);
+                    board[i, j] = E_Cross.none;
+                    UpdateAllFeatures(i, j);
+                    if (eval <= alpha)
+                        return eval;
+                    beta = Mathf.Min(beta, eval);
+                }
+            }
+        }
+        return eval;
     }
 }

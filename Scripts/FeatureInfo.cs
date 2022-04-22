@@ -92,14 +92,14 @@ public enum E_FeatureType
 {
     none = 0,
     single = 1,
-    near2 = 10,
-    jump2 = 9,
-    far2 = 8,
-    near3 = 50,
-    jump3 = 45,
-    near4 = 500,
-    jump4 = 550,
-    five = 10000000,    // 不设置为int.MaxValue 防止计算时溢出 但需要保证足够大使AI必定不会错过五连
+    near2 = 40,
+    jump2 = 39,
+    far2 = 38,
+    near3 = 1600,
+    jump3 = 1550,
+    near4 = 64000,
+    jump4 = 50000,
+    five = 100000000,    // 不设置为int.MaxValue 防止计算时溢出 但需要保证足够大使AI必定不会错过五连
     dead = -1,
 }
 

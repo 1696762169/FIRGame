@@ -18,6 +18,8 @@ public class GameMgr : MonoBehaviour
 
     [Tooltip("先手玩家")]
     public E_Player startPlayer = E_Player.player;
+    [Tooltip("最大搜索深度")]
+    public int maxDepth;
 
     public E_PieceType CurPiece         // 当前棋子
     {
