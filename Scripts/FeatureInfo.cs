@@ -13,7 +13,7 @@ public class FeatureInfo
     /// 1 竖直排布
     /// 2 右上-左下排布
     /// 3 左上-右下排布
-    protected Feature[,,] features = new Feature[4, lineMax, Chessboard.lineNum];
+    public Feature[,,] features = new Feature[4, lineMax, Chessboard.lineNum];
     /// <summary>
     /// 每个位置上以该位置为起始点的特征信息
     /// </summary>
@@ -64,46 +64,24 @@ public class Feature
 {
     // 特征连子类型
     public E_FeatureType type;
-    // 特征所处位置未被封堵的最大空间
-    public int space;
-    // 特征是否在相邻位置被单边封堵
+
+    // 特征是否被封堵
     public bool blocked;
+    // 定义未被封堵时的特征评价函数值倍率
+    public const int liveScale = 10;
+
     // 可以考虑特征是否和其它特征在同一直线上连锁
 
-    public Feature() : this(E_FeatureType.none, Chessboard.lineNum, false) { }
-    public Feature(E_FeatureType type, int space, bool blocked)
+    public Feature() : this(E_FeatureType.none, false) { }
+    public Feature(E_FeatureType type, bool blocked)
     {
         this.type = type;
-        this.space = space;
         this.blocked = blocked;
     }
     public Feature(Feature origin)
     {
         type = origin.type;
-        space = origin.space;
         blocked = origin.blocked;
-    }
-}
-
-/// <summary>
-/// 某位置附近的棋子排布
-/// </summary>
-public struct NearbyInfo
-{
-    // 该位置的横纵坐标
-    public int x;
-    public int y;
-    // 边界信息
-    public int[,] border;
-    // 棋子排布
-    public int[] nearby;
-
-    public NearbyInfo(int x, int y)
-    {
-        this.x = x;
-        this.y = y;
-        border = null;
-        nearby = null;
     }
 }
 
@@ -113,16 +91,16 @@ public struct NearbyInfo
 public enum E_FeatureType
 {
     none = 0,
-    single,
-    near2,
-    jump2,
-    far2,
-    near3,
-    jump3,
-    near4,
-    jump4,
-    five,
-    dead,
+    single = 1,
+    near2 = 10,
+    jump2 = 9,
+    far2 = 8,
+    near3 = 50,
+    jump3 = 45,
+    near4 = 500,
+    jump4 = 550,
+    five = 10000000,    // 不设置为int.MaxValue 防止计算时溢出 但需要保证足够大使AI必定不会错过五连
+    dead = -1,
 }
 
 /// <summary>

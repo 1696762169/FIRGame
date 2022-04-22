@@ -16,9 +16,9 @@ public enum E_PieceType
 /// </summary>
 public enum E_Cross
 {
-    none = 2,
-    player = 0,
-    AI = 1,
+    none,
+    player,
+    AI,
 }
 
 /// <summary>

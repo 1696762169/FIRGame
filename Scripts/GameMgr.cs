@@ -75,6 +75,7 @@ public class GameMgr : MonoBehaviour
             if (GoalTest())                         // 检测玩家是否胜利
             {
                 win = true;
+                PlayPanel.Instance.HideMe();
                 EndPanel.Instance.ShowMe();         // 展示胜利界面
             }
             else
@@ -98,6 +99,7 @@ public class GameMgr : MonoBehaviour
         if (GoalTest())
         {
             win = false;
+            PlayPanel.Instance.HideMe();
             EndPanel.Instance.ShowMe();         // 展示失败界面
         }
         else

@@ -20,10 +20,9 @@ public class EndPanel : BasePanel
     public Color failColor;
     public override void ShowMe()
     {
-        bool win = GameMgr.Instance.win;
-        tips.text = win ? "¹§Ï²Ê¤Àû!" : "ÓÎÏ·Ê§°Ü!";
-        tips.color = win ? winColor : failColor;
         base.ShowMe();
+        tips.text = GameMgr.Instance.win ? "¹§Ï²Ê¤Àû!" : "ÓÎÏ·Ê§°Ü!";
+        tips.SetColorNoAlpha(GameMgr.Instance.win ? winColor : failColor);
     }
 
     /// <summary>
