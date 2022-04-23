@@ -18,11 +18,25 @@ public class EndPanel : BasePanel
     // 提示文字颜色
     public Color winColor;
     public Color failColor;
+    public Color deuceColor;
     public override void ShowMe()
     {
+        if (GameMgr.Instance.result > 0)
+        {
+            tips.text = "恭喜胜利!";
+            tips.SetColorNoAlpha(winColor);
+        }
+        else if (GameMgr.Instance.result < 0)
+        {
+            tips.text = "游戏失败!";
+            tips.SetColorNoAlpha(failColor);
+        }
+        else
+        {
+            tips.text = "平局 ";
+            tips.SetColorNoAlpha(deuceColor);
+        }
         base.ShowMe();
-        tips.text = GameMgr.Instance.win ? "恭喜胜利!" : "游戏失败!";
-        tips.SetColorNoAlpha(GameMgr.Instance.win ? winColor : failColor);
     }
 
     /// <summary>

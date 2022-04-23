@@ -55,6 +55,7 @@ public class FeatureInfo
                 for (int loca = 0; loca < Chessboard.lineNum; ++loca)
                     features[dir, line, loca] = new Feature(origin[dir, line, loca]);
     }
+    
 }
 
 /// <summary>
@@ -68,7 +69,7 @@ public class Feature
     // 特征是否被封堵
     public bool blocked;
     // 定义未被封堵时的特征评价函数值倍率
-    public const int liveScale = 10;
+    public const int liveScale = 2;
 
     // 可以考虑特征是否和其它特征在同一直线上连锁
 
@@ -91,14 +92,14 @@ public class Feature
 public enum E_FeatureType
 {
     none = 0,
-    single = 1,
-    near2 = 40,
-    jump2 = 39,
-    far2 = 38,
-    near3 = 1600,
-    jump3 = 1550,
-    near4 = 64000,
-    jump4 = 50000,
+    single = 1000,
+    near2 = 10000,
+    jump2 = 9000,
+    far2 = 8000,
+    near3 = 30000,
+    jump3 = 25000,
+    near4 = 60000,
+    jump4 = 45000,
     five = 100000000,    // 不设置为int.MaxValue 防止计算时溢出 但需要保证足够大使AI必定不会错过五连
     dead = -1,
 }

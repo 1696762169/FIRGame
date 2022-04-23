@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -20,6 +21,10 @@ public class GameMgr : MonoBehaviour
     public E_Player startPlayer = E_Player.player;
     [Tooltip("最大搜索深度")]
     public int maxDepth;
+    [Tooltip("玩家先手时玩家的评价函数与AI相对比例")]
+    public float playerFirstEvalScale;
+    [Tooltip("AI先手时玩家的评价函数与AI相对比例")]
+    public float AIFirstEvalScale;
 
     public E_PieceType CurPiece         // 当前棋子
     {
@@ -33,7 +38,9 @@ public class GameMgr : MonoBehaviour
     }
 
     [HideInInspector]
-    public bool win;                    // 是否胜利
+    public int result;                  // 游戏结果 大于0则玩家胜利 小于0则AI胜利 等于0则平局
+
+    protected int timer;                // 回合计时器
 
     /// <summary>
     /// 开始游戏
@@ -44,6 +51,10 @@ public class GameMgr : MonoBehaviour
         CurPlayer = startPlayer;
         CurPiece = E_PieceType.black;
         Chessboard.Instance.gameObject.GetComponent<UIButton>().enabled = CurPlayer == E_Player.player;
+
+        // 开始计时
+        timer = System.Environment.TickCount;
+
         // 开始AI第一步
         if (CurPlayer == E_Player.AI)
         {
@@ -76,22 +87,32 @@ public class GameMgr : MonoBehaviour
         {
             if (GoalTest())                         // 检测玩家是否胜利
             {
-                win = true;
+                result = 1;
                 PlayPanel.Instance.HideMe();
                 EndPanel.Instance.ShowMe();         // 展示胜利界面
             }
+            else if (Chessboard.Instance.history.Count == Chessboard.lineNum * Chessboard.lineNum)
+            {
+                result = 0;
+                PlayPanel.Instance.HideMe();
+                EndPanel.Instance.ShowMe();         // 展示平局界面
+            }
             else
-                AIGo();                             // AI进行操作
+            {
+                SetCurrentPlayer(E_Player.AI);      // 控制权交给AI
+                StartCoroutine(AIGo());             // AI进行行动
+            }
         }
     }
 
     /// <summary>
     /// 进入AI的回合
     /// </summary>
-    public void AIGo()
+    public IEnumerator AIGo()
     {
-        // 控制权交给AI
-        SetCurrentPlayer(E_Player.AI);
+        // 等待玩家棋子与提示信息渲染完毕后再开始计算
+        yield return new WaitForEndOfFrame();
+        yield return new WaitForEndOfFrame();
 
         // AI落子并在棋盘创建棋子
         Vector2Int pos = AIGamer.Instance.Go();
@@ -100,9 +121,15 @@ public class GameMgr : MonoBehaviour
         // 检测AI是否胜利
         if (GoalTest())
         {
-            win = false;
+            result = -1;
             PlayPanel.Instance.HideMe();
             EndPanel.Instance.ShowMe();         // 展示失败界面
+        }
+        else if (Chessboard.Instance.history.Count == Chessboard.lineNum * Chessboard.lineNum)
+        {
+            result = 0;
+            PlayPanel.Instance.HideMe();
+            EndPanel.Instance.ShowMe();         // 展示平局界面
         }
         else
             SetCurrentPlayer(E_Player.player);  // 控制权交给玩家
@@ -127,7 +154,9 @@ public class GameMgr : MonoBehaviour
             CurPiece = CurPiece == E_PieceType.black ? E_PieceType.white : E_PieceType.black;
         }
 
-        // 显示提示信息
+        // 更新提示信息并重置计时器
+        PlayPanel.Instance.UpdateTips((System.Environment.TickCount - timer) / 1000.0f);
+        timer = System.Environment.TickCount;
     }
     protected void Awake() => instance = this;
     protected bool GoalTest() => AIGamer.Instance.GoalTest;
