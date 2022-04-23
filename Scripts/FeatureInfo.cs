@@ -55,7 +55,6 @@ public class FeatureInfo
                 for (int loca = 0; loca < Chessboard.lineNum; ++loca)
                     features[dir, line, loca] = new Feature(origin[dir, line, loca]);
     }
-    
 }
 
 /// <summary>

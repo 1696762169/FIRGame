@@ -1,6 +1,7 @@
 //#define DEBUG_FEATURE
-#define DEBUG_EVAL
-#define DEBUG_SEARCH
+#define DEBUG_FEATURENUM
+//#define DEBUG_EVAL
+//#define DEBUG_SEARCH
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -13,28 +14,6 @@ public class AIGamer
     private static AIGamer instance = new AIGamer();
     public static AIGamer Instance => instance;
     private AIGamer() => Init();
-
-    // 棋盘行列数
-    protected const int lineNum = Chessboard.lineNum;
-    // 用于内部计算的棋盘状态
-    protected E_Cross[,] board;
-    // 下一步行棋位置
-    protected Vector2Int nextPos;
-
-    // 用于内部计算的棋盘特征
-    protected FeatureInfo AIFi;
-    protected FeatureInfo playerFi;
-    // 记录本次落子前的棋盘特征
-    protected FeatureInfo originAIFi;
-    protected FeatureInfo originPlayerFi;
-    // 玩家评价值与AI的相对比例
-    protected float playerEvalScale;
-
-    // 搜索最大深度
-    protected int maxDepth;
-
-    // 标记是否创建过棋子
-    protected bool playing;
 
     /// <summary>
     /// 检测游戏是否结束
@@ -51,6 +30,32 @@ public class AIGamer
     public const int dir_div = 2;        // 左下-右上
     public const int dir_back = 3;       // 左上-右下
 
+    // 棋盘行列数
+    protected const int lineNum = Chessboard.lineNum;
+    // 用于内部计算的棋盘状态
+    protected E_Cross[,] board;
+    // 下一步行棋位置
+    protected Vector2Int nextPos;
+
+    // 用于内部计算的棋盘特征
+    protected FeatureInfo AIFi;
+    protected FeatureInfo playerFi;
+    // 记录本次落子前的棋盘特征
+    protected FeatureInfo originAIFi;
+    protected FeatureInfo originPlayerFi;
+    // 玩家的评价值
+    protected int playerEval;
+    // AI的评价值
+    protected int AIEval;
+    // 玩家评价值与AI的相对比例
+    protected float playerEvalScale;
+
+    // 搜索最大深度
+    protected int maxDepth;
+
+    // 标记是否创建过棋子
+    protected bool playing;
+
     /// <summary>
     /// 初始化属性
     /// </summary>
@@ -64,6 +69,8 @@ public class AIGamer
         AIFi = new FeatureInfo();
         playerFi = new FeatureInfo();
         playing = false;
+        playerEval = 0;
+        AIEval = 0;
         playerEvalScale = GameMgr.Instance.startPlayer == E_Player.player ?
             GameMgr.Instance.playerFirstEvalScale : GameMgr.Instance.AIFirstEvalScale;
         GoalTest = false;
@@ -110,6 +117,18 @@ public class AIGamer
 #if DEBUG_EVAL
         Debug.Log(string.Format("最大评价值：{0, -10}最佳位置：{1}", maxEval, nextPos));
 #endif
+#if DEBUG_FEATURENUM
+        int count = 0;
+        foreach (Feature f in playerFi.features)
+            if (f.type != E_FeatureType.none && f.type != E_FeatureType.dead)
+                ++count;
+        Debug.Log($"玩家特征有{count}个");
+        count = 0;
+        foreach (Feature f in AIFi.features)
+            if (f.type != E_FeatureType.none && f.type != E_FeatureType.dead)
+                ++count;
+        Debug.Log($"AI特征有{count}个");
+#endif
         return nextPos;
     }
 
@@ -120,7 +139,8 @@ public class AIGamer
     /// </summary>
     protected int Eval()
     {
-        return (int)(Eval(E_Player.AI) - playerEvalScale * Eval(E_Player.player));
+        //return (int)(Eval(E_Player.AI) - playerEvalScale * Eval(E_Player.player));
+        return (int)(AIEval - playerEvalScale * playerEval);
     }
     /// <summary>
     /// 统计某一方的评价函数值
@@ -165,6 +185,27 @@ public class AIGamer
             }
         }
 #endif
+        return eval;
+    }
+    /// <summary>
+    /// 统计某一方在某一方向某一行的评价函数值
+    /// </summary>
+    protected int Eval(E_Player side, int dir, int line)
+    {
+        int eval = 0;
+        FeatureInfo fi = side == E_Player.AI ? AIFi : playerFi;
+        for (int loca = 0; loca < lineNum; ++loca)
+        {
+            switch (fi[dir, line, loca].type)
+            {
+            case E_FeatureType.none:
+            case E_FeatureType.dead:
+                continue;
+            default:
+                eval += (int)fi[dir, line, loca].type * (fi[dir, line, loca].blocked ? 1 : Feature.liveScale);
+                break;
+            }
+        }
         return eval;
     }
 
@@ -220,6 +261,11 @@ public class AIGamer
         FeatureInfo fi = side == E_Player.AI ? AIFi : playerFi;
         // 对手棋子
         E_Cross enemy = side == E_Player.AI ? E_Cross.player : E_Cross.AI;
+        // 消除受本行影响的评价函数
+        if (side == E_Player.player)
+            playerEval -= Eval(E_Player.player, dir, line);
+        else
+            AIEval -= Eval(E_Player.AI, dir, line);
         // pieces尾部增加一个对手棋子方便判断
         pieces[lineNum] = enemy;
 
@@ -366,6 +412,56 @@ public class AIGamer
                 lastEnd = loca + used;
             }// end of each sap
         }// end of foreach statement
+
+        // 更新评价函数
+        if (side == E_Player.player)
+            playerEval += Eval(E_Player.player, dir, line);
+        else
+            AIEval += Eval(E_Player.AI, dir, line);
+    }
+
+    /// <summary>
+    /// 根据棋盘位置获取其附近特征
+    /// </summary>
+    /// 特征数组维度分别为 归属方 方向 特征在该行的
+    protected Feature[,,] GetNearbyFeatures(int x, int y)
+    {
+        Feature[,,] tempFs = new Feature[2, 4, lineNum];
+        for (int i = 0; i < 4; ++i)
+        {
+            if (i == dir_div && (FeatureInfo.lineMax / 2 < y - x || FeatureInfo.lineMax / 2 < x - y)
+                || i == dir_back && (x + y < 4 || FeatureInfo.lineMax + 3 < x + y))
+                continue;
+            Vector3Int fpos = BoardToFeature(x, y, i);
+            for (int j = 0; j < lineNum; ++j)
+                tempFs[0, i, j] = new Feature(AIFi[i, fpos.y, j]);
+            for (int j = 0; j < lineNum; ++j)
+                tempFs[1, i, j] = new Feature(playerFi[i, fpos.y, j]);
+    }
+        return tempFs;
+    }
+    /// <summary>
+    /// 根据参数存储某棋盘位置附近特征
+    /// </summary>
+    protected void SetNearbyFeatures(Feature[,,] tempFs, int x, int y)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            if (i == dir_div && (FeatureInfo.lineMax / 2 < y - x || FeatureInfo.lineMax / 2 < x - y)
+                || i == dir_back && (x + y < 4 || FeatureInfo.lineMax + 3 < x + y))
+                continue;
+            Vector3Int fpos = BoardToFeature(x, y, i);
+            for (int j = 0; j < lineNum; ++j)
+            {
+                AIFi[i, fpos.y, j].type = tempFs[0, i, j].type;
+                AIFi[i, fpos.y, j].blocked = tempFs[0, i, j].blocked;
+            }
+            for (int j = 0; j < lineNum; ++j)
+            {
+                playerFi[i, fpos.y, j].type = tempFs[1, i, j].type;
+                playerFi[i, fpos.y, j].blocked = tempFs[1, i, j].blocked;
+            }
+        }
     }
 
     /* 以下为获取最有价值位置相关函数 */
@@ -605,6 +701,9 @@ public class AIGamer
         List<Vector2Int> positions = GetBestPositions(E_Player.AI);
         foreach (Vector2Int pos in positions)
         {
+            // 存储更新前特征
+            //List<Feature> fList = GetNearbyFeatures(pos.x, pos.y);
+            // 更新特征
             board[pos.x, pos.y] = E_Cross.AI;
             UpdateAllFeatures(pos.x, pos.y);
             curEval = MinValue(alpha, beta, depth + 1);
@@ -620,8 +719,10 @@ public class AIGamer
                 Debug.Log(string.Format("当前最大评价函数：{0, -10}当前位置{1}", eval, nextPos));
 #endif
             }
+            // 恢复特征
             board[pos.x, pos.y] = E_Cross.none;
             UpdateAllFeatures(pos.x, pos.y);
+            //SetNearbyFeatures(fList, pos.x, pos.y);
             if (eval >= beta)
                 return eval;
             alpha = Mathf.Max(alpha, eval);
@@ -636,11 +737,16 @@ public class AIGamer
         List<Vector2Int> positions = GetBestPositions(E_Player.player);
         foreach (Vector2Int pos in positions)
         {
+            // 存储更新前特征
+            Feature[,,] tempFs = GetNearbyFeatures(pos.x, pos.y);
+            // 更新特征
             board[pos.x, pos.y] = E_Cross.player;
             UpdateAllFeatures(pos.x, pos.y);
             eval = Mathf.Min(MaxValue(alpha, beta, depth + 1), eval);
+            // 恢复特征
             board[pos.x, pos.y] = E_Cross.none;
             UpdateAllFeatures(pos.x, pos.y);
+            //SetNearbyFeatures(tempFs, pos.x, pos.y);
             if (eval <= alpha)
                 return eval;
             beta = Mathf.Min(beta, eval);
@@ -663,6 +769,22 @@ public class AIGamer
             return new Vector2Int(loca, lineNum + 9 - line - loca);
         default:
             return new Vector2Int(-1, -1);
+        }
+    }
+    protected Vector3Int BoardToFeature(int x, int y, int dir)
+    {
+        switch (dir)
+        {
+        case dir_hor:
+            return new Vector3Int(dir, y, x);
+        case dir_ver:
+            return new Vector3Int(dir, x, y);
+        case dir_div:
+            return new Vector3Int(dir, FeatureInfo.lineMax / 2 - y + x, y);
+        case dir_back:
+            return new Vector3Int(dir, FeatureInfo.lineMax + 3 - x - y, x);
+        default:
+            return new Vector3Int(-1, -1, -1);
         }
     }
 }
