@@ -21,6 +21,8 @@ public class GameMgr : MonoBehaviour
     public E_Player startPlayer = E_Player.player;
     [Tooltip("最大搜索深度")]
     public int maxDepth;
+    [Tooltip("最大搜索结点数")]
+    public int maxNodeNum;
     [Tooltip("玩家先手时玩家的评价函数与AI相对比例")]
     public float playerFirstEvalScale;
     [Tooltip("AI先手时玩家的评价函数与AI相对比例")]

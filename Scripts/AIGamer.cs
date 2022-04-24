@@ -1,6 +1,9 @@
 //#define DEBUG_FEATURE
-#define DEBUG_FEATURENUM
-//#define DEBUG_EVAL
+//#define DEBUG_FEATURENUM
+//#define DEBUG_NODENUM
+//#define DEBUG_MAXDEPTH
+#define DEBUG_EVERYDEPTH_EVAL
+#define DEBUG_EVAL
 //#define DEBUG_SEARCH
 using System.Collections.Generic;
 using UnityEngine;
@@ -36,6 +39,7 @@ public class AIGamer
     protected E_Cross[,] board;
     // 下一步行棋位置
     protected Vector2Int nextPos;
+    protected Vector2Int curNextPos;
 
     // 用于内部计算的棋盘特征
     protected FeatureInfo AIFi;
@@ -50,8 +54,13 @@ public class AIGamer
     // 玩家评价值与AI的相对比例
     protected float playerEvalScale;
 
-    // 搜索最大深度
+    // (当前)搜索最大深度
     protected int maxDepth;
+    protected int curDepth;
+    protected int curMaxDepth;
+    // 最大/当前搜索结点数
+    protected int maxNodeNum;
+    protected int nodeNum;
 
     // 标记是否创建过棋子
     protected bool playing;
@@ -62,6 +71,7 @@ public class AIGamer
     public void Init()
     {
         maxDepth = GameMgr.Instance.maxDepth;
+        maxNodeNum = GameMgr.Instance.maxNodeNum;
         board = new E_Cross[lineNum, lineNum];
         for (int i = 0; i < lineNum; ++i)
             for (int j = 0; j < lineNum; ++j)
@@ -95,6 +105,20 @@ public class AIGamer
         // 调用评价函数判断是否结束游戏
         if (create && Mathf.Abs(Eval()) > (int)E_FeatureType.five / 2)
             GoalTest = true;
+#if DEBUG_FEATURENUM
+        if (GameMgr.Instance.CurPlayer == E_Player.player)
+            return;
+        int count = 0;
+        foreach (Feature f in playerFi.Features)
+            if (f.type != E_FeatureType.none)
+                ++count;
+        Debug.Log($"玩家特征有{count}个");
+        count = 0;
+        foreach (Feature f in AIFi.Features)
+            if (f.type != E_FeatureType.none)
+                ++count;
+        Debug.Log($"AI特征有{count}个");
+#endif
     }
 
     /// <summary>
@@ -110,25 +134,18 @@ public class AIGamer
         // 当棋盘快满时减少搜索最大层数
         maxDepth = Mathf.Min(maxDepth, Chessboard.lineNum * Chessboard.lineNum - Chessboard.Instance.history.Count);
 
-        int maxEval = AlphaBetaSearch();
+        AlphaBetaSearch();
         // 将棋盘特征与计算前的特征同步
         AIFi = new FeatureInfo(originAIFi);
         playerFi = new FeatureInfo(originPlayerFi);
-#if DEBUG_EVAL
-        Debug.Log(string.Format("最大评价值：{0, -10}最佳位置：{1}", maxEval, nextPos));
+
+#if DEBUG_NODENUM
+        Debug.Log($"搜索结点数：{nodeNum}");
 #endif
-#if DEBUG_FEATURENUM
-        int count = 0;
-        foreach (Feature f in playerFi.features)
-            if (f.type != E_FeatureType.none && f.type != E_FeatureType.dead)
-                ++count;
-        Debug.Log($"玩家特征有{count}个");
-        count = 0;
-        foreach (Feature f in AIFi.features)
-            if (f.type != E_FeatureType.none && f.type != E_FeatureType.dead)
-                ++count;
-        Debug.Log($"AI特征有{count}个");
+#if DEBUG_MAXDEPTH
+        Debug.Log($"搜索最大深度：{curMaxDepth}");
 #endif
+
         return nextPos;
     }
 
@@ -139,8 +156,8 @@ public class AIGamer
     /// </summary>
     protected int Eval()
     {
-        //return (int)(Eval(E_Player.AI) - playerEvalScale * Eval(E_Player.player));
-        return (int)(AIEval - playerEvalScale * playerEval);
+        return (int)(Eval(E_Player.AI) - playerEvalScale * Eval(E_Player.player));
+        //return (int)(AIEval - playerEvalScale * playerEval);
     }
     /// <summary>
     /// 统计某一方的评价函数值
@@ -149,63 +166,18 @@ public class AIGamer
     {
         int eval = 0;
         FeatureInfo fi = side == E_Player.AI ? AIFi : playerFi;
-        foreach (Feature f in fi.features)
-        {
-            switch (f.type)
-            {
-            case E_FeatureType.none:
-            case E_FeatureType.dead:
-                continue;
-            default:
-                eval += (int)f.type * (f.blocked ? 1 : Feature.liveScale);
-                break;
-            }
-        }
+        foreach (Feature f in fi.Features)
+            eval += (int)f.type * (f.blocked ? 1 : Feature.liveScale);
 #if DEBUG_FEATURE
         if (GameMgr.Instance.CurPlayer == E_Player.player)
             return eval;
         string sideStr = side == E_Player.player ? "玩家" : "AI";
-        for (int dir =0;dir < 4; ++dir)
+        foreach (Feature f in fi.Features)
         {
-            for (int line = 0;line < FeatureInfo.lineMax; ++line)
-            {
-                for (int loca = 0; loca < lineNum; ++loca)
-                {
-                    switch (fi[dir, line, loca].type)
-                    {
-                    case E_FeatureType.dead:
-                    case E_FeatureType.none:
-                    case E_FeatureType.single:
-                        continue;
-                    default:
-                        Debug.Log(string.Format("归属方：{0, -5}方向：{1,-3}行数：{2,-3}位置：{3,-3}类型：{4}", sideStr, dir, line, loca, fi[dir, line, loca].type));
-                        break;
-                    }
-                }
-            }
+            if (f.type != E_FeatureType.single)
+                Debug.Log(string.Format("归属方：{0, -5}方向：{1,-3}行数：{2,-3}位置：{3,-3}类型：{4}", sideStr, f.dir, f.line, f.loca, f.type));
         }
 #endif
-        return eval;
-    }
-    /// <summary>
-    /// 统计某一方在某一方向某一行的评价函数值
-    /// </summary>
-    protected int Eval(E_Player side, int dir, int line)
-    {
-        int eval = 0;
-        FeatureInfo fi = side == E_Player.AI ? AIFi : playerFi;
-        for (int loca = 0; loca < lineNum; ++loca)
-        {
-            switch (fi[dir, line, loca].type)
-            {
-            case E_FeatureType.none:
-            case E_FeatureType.dead:
-                continue;
-            default:
-                eval += (int)fi[dir, line, loca].type * (fi[dir, line, loca].blocked ? 1 : Feature.liveScale);
-                break;
-            }
-        }
         return eval;
     }
 
@@ -216,17 +188,25 @@ public class AIGamer
     /// </summary>
     protected void UpdateAllFeatures(int x, int y)
     {
+        // 删除所有关联特征
+        for (int i = playerFi.Features.Count - 1; i >= 0; --i)
+            if (IsAttached_BF(x, y, playerFi[i].dir, playerFi[i].line))
+                playerFi.Features.RemoveAt(i);
+        for (int i = AIFi.Features.Count - 1; i >= 0; --i)
+            if (IsAttached_BF(x, y, AIFi[i].dir, AIFi[i].line))
+                AIFi.Features.RemoveAt(i);
+
         E_Cross[] pieces = new E_Cross[lineNum + 1];
         // 更新横向
         for (int i = 0; i < lineNum; ++i)
             pieces[i] = board[i, y];
-        UpdateLineFeatures(E_Player.AI, dir_hor, y, pieces);
-        UpdateLineFeatures(E_Player.player, dir_hor, y, pieces);
+        AddLineFeatures(E_Player.AI, dir_hor, y, pieces);
+        AddLineFeatures(E_Player.player, dir_hor, y, pieces);
         // 更新纵向
         for (int i = 0; i < lineNum; ++i)
             pieces[i] = board[x, i];
-        UpdateLineFeatures(E_Player.AI, dir_ver, x, pieces);
-        UpdateLineFeatures(E_Player.player, dir_ver, x, pieces);
+        AddLineFeatures(E_Player.AI, dir_ver, x, pieces);
+        AddLineFeatures(E_Player.player, dir_ver, x, pieces);
 
         // 某些区域的落子不会产生斜向有效特征
         int YmX = y - x;
@@ -235,8 +215,8 @@ public class AIGamer
             // 更新左下-右上
             for (int i = Mathf.Max(0, YmX); i < lineNum - Mathf.Max(0, -YmX); ++i)
                 pieces[i] = board[i - YmX, i];
-            UpdateLineFeatures(E_Player.AI, dir_div, FeatureInfo.lineMax / 2 - YmX, pieces);
-            UpdateLineFeatures(E_Player.player, dir_div, FeatureInfo.lineMax / 2 - YmX, pieces);
+            AddLineFeatures(E_Player.AI, dir_div, FeatureInfo.lineMax / 2 - YmX, pieces, Mathf.Max(0, YmX), lineNum - Mathf.Max(0, -YmX));
+            AddLineFeatures(E_Player.player, dir_div, FeatureInfo.lineMax / 2 - YmX, pieces, Mathf.Max(0, YmX), lineNum - Mathf.Max(0, -YmX));
         }
         int XpYp1 = x + y + 1;
         if (Mathf.Abs(lineNum - XpYp1) <= lineNum - 5)
@@ -244,38 +224,33 @@ public class AIGamer
             // 更新左上-右下
             for (int i = Mathf.Max(0, XpYp1 - lineNum); i < Mathf.Min(lineNum, XpYp1); ++i)
                 pieces[i] = board[i, XpYp1 - 1 - i];
-            UpdateLineFeatures(E_Player.AI, dir_back, FeatureInfo.lineMax + 4 - XpYp1, pieces);
-            UpdateLineFeatures(E_Player.player, dir_back, FeatureInfo.lineMax + 4 - XpYp1, pieces);
+            AddLineFeatures(E_Player.AI, dir_back, FeatureInfo.lineMax + 4 - XpYp1, pieces, Mathf.Max(0, XpYp1 - lineNum), Mathf.Min(lineNum, XpYp1));
+            AddLineFeatures(E_Player.player, dir_back, FeatureInfo.lineMax + 4 - XpYp1, pieces, Mathf.Max(0, XpYp1 - lineNum), Mathf.Min(lineNum, XpYp1));
         }
     }
     /// <summary>
-    /// 更新某方向上一条直线的全部特征
+    /// 增加某方向上一条直线的全部特征
     /// </summary>
     /// <param name="side">待更新的特征归属方</param>
     /// <param name="dir">直线方向</param>
     /// <param name="line">行列数</param>
     /// <param name="pieces">该条直线上的所有棋子分布情况</param>
-    protected void UpdateLineFeatures(E_Player side, int dir, int line, E_Cross[] pieces)
+    protected void AddLineFeatures(E_Player side, int dir, int line, E_Cross[] pieces, int start = 0, int end = lineNum)
     {
         // 待更新数组
         FeatureInfo fi = side == E_Player.AI ? AIFi : playerFi;
         // 对手棋子
         E_Cross enemy = side == E_Player.AI ? E_Cross.player : E_Cross.AI;
-        // 消除受本行影响的评价函数
-        if (side == E_Player.player)
-            playerEval -= Eval(E_Player.player, dir, line);
-        else
-            AIEval -= Eval(E_Player.AI, dir, line);
         // pieces尾部增加一个对手棋子方便判断
-        pieces[lineNum] = enemy;
+        pieces[end] = enemy;
 
         // 将该行棋子按E_Cross.enemy与E_Feature.dead划分为多段 记录其起点与终点后一个位置
         List<Vector2Int> saps = new List<Vector2Int>();
         Vector2Int cur = new Vector2Int(-1, -1);
         bool newSap = true;
-        for (int loca = 0; loca < lineNum; ++loca)
+        for (int loca = start; loca < end; ++loca)
         {
-            if (fi[dir, line, loca].type == E_FeatureType.dead || pieces[loca] == enemy)
+            if (pieces[loca] == enemy)
             {
                 if (cur.x != -1)
                 {
@@ -301,16 +276,10 @@ public class AIGamer
             cur.x = -1;
         }
 
-        // 将长度小于五的分段设为none 并移除分段
+        // 将长度小于五的分段移除
         for (int i = saps.Count - 1; i >= 0; --i)
-        {
             if (saps[i].y - saps[i].x < 5)
-            {
-                for (int loca = saps[i].x; loca < saps[i].y; ++loca)
-                    fi[dir, line, loca].type = E_FeatureType.none;
                 saps.RemoveAt(i);
-            }
-        }
 
         // 分别更新每个分段
         foreach (Vector2Int sap in saps)
@@ -323,13 +292,11 @@ public class AIGamer
             {
                 // 没有棋子的位置不可能作为特征起始点
                 if (pieces[loca] == E_Cross.none)
-                {
-                    fi[dir, line, loca].type = E_FeatureType.none;
                     continue;
-                }
 
+                Feature f = new Feature(E_FeatureType.none, false, dir, line, loca);
                 // 该分段过小时视为被封堵
-                fi[dir, line, loca].blocked = space == 5;
+                f.blocked = space == 5;
 
                 // 该分段剩余空间 接下来按剩余空间搜索
                 int lastSpace = sap.y - loca;
@@ -339,8 +306,8 @@ public class AIGamer
                 // 需要1空间
                 if (loca + 1 > lastEnd)
                 {
-                    fi[dir, line, loca].type = E_FeatureType.single;
-                    fi[dir, line, loca].blocked |= loca == 0 || pieces[loca - 1] == enemy || pieces[loca + 1] == enemy;
+                    f.type = E_FeatureType.single;
+                    f.blocked |= loca == 0 || pieces[loca - 1] == enemy || pieces[loca + 1] == enemy;
                     used = 1;
                 }
 
@@ -348,8 +315,8 @@ public class AIGamer
                 if (lastSpace >= 2 && pieces[loca + 1] != E_Cross.none && loca + 2 > lastEnd)
                 {
                     // 连二
-                    fi[dir, line, loca].type = E_FeatureType.near2;
-                    fi[dir, line, loca].blocked |= pieces[loca + 2] == enemy;
+                    f.type = E_FeatureType.near2;
+                    f.blocked |= pieces[loca + 2] == enemy;
                     used = 2;
                 }
 
@@ -358,11 +325,11 @@ public class AIGamer
                 {
                     // 小跳二
                     if (pieces[loca + 1] == E_Cross.none)
-                        fi[dir, line, loca].type = E_FeatureType.jump2;
+                        f.type = E_FeatureType.jump2;
                     // 连三
                     else
-                        fi[dir, line, loca].type = E_FeatureType.near3;
-                    fi[dir, line, loca].blocked |= pieces[loca + 3] == enemy;
+                        f.type = E_FeatureType.near3;
+                    f.blocked |= pieces[loca + 3] == enemy;
                     used = 3;
                 }
 
@@ -371,14 +338,14 @@ public class AIGamer
                 {
                     // 大跳二
                     if (pieces[loca + 1] == E_Cross.none && pieces[loca + 2] == E_Cross.none)
-                        fi[dir, line, loca].type = E_FeatureType.far2;
+                        f.type = E_FeatureType.far2;
                     // 跳三
                     else if (pieces[loca + 1] != pieces[loca + 2])
-                        fi[dir, line, loca].type = E_FeatureType.jump3;
+                        f.type = E_FeatureType.jump3;
                     // 连四
                     else
-                        fi[dir, line, loca].type = E_FeatureType.near4;
-                    fi[dir, line, loca].blocked |= pieces[loca + 4] == enemy;
+                        f.type = E_FeatureType.near4;
+                    f.blocked |= pieces[loca + 4] == enemy;
                     used = 4;
                 }
 
@@ -393,106 +360,61 @@ public class AIGamer
                     // 跳四
                     if (blankCount == 1)
                     {
-                        fi[dir, line, loca].type = E_FeatureType.jump4;
+                        f.type = E_FeatureType.jump4;
                         used = 5;
                     }
                     // 连五
                     if (blankCount == 0)
                     {
-                        fi[dir, line, loca].type = E_FeatureType.five;
+                        f.type = E_FeatureType.five;
                         used = 5;
                     }
-                    fi[dir, line, loca].blocked |= pieces[loca + 5] == enemy;
+                    f.blocked |= pieces[loca + 5] == enemy;
                 }
 
+                // 加入特征
+                fi.Features.Add(f);
                 // 由于此位置已经产生了特征起始点 故后续的连续相同棋子都无需考虑
                 while (++loca < sap.y && pieces[loca] != E_Cross.none)
-                    fi[dir, line, loca].type = E_FeatureType.none;
+                    ;
                 // 记录当前特征后一个位置
                 lastEnd = loca + used;
             }// end of each sap
         }// end of foreach statement
-
-        // 更新评价函数
-        if (side == E_Player.player)
-            playerEval += Eval(E_Player.player, dir, line);
-        else
-            AIEval += Eval(E_Player.AI, dir, line);
-    }
-
-    /// <summary>
-    /// 根据棋盘位置获取其附近特征
-    /// </summary>
-    /// 特征数组维度分别为 归属方 方向 特征在该行的
-    protected Feature[,,] GetNearbyFeatures(int x, int y)
-    {
-        Feature[,,] tempFs = new Feature[2, 4, lineNum];
-        for (int i = 0; i < 4; ++i)
-        {
-            if (i == dir_div && (FeatureInfo.lineMax / 2 < y - x || FeatureInfo.lineMax / 2 < x - y)
-                || i == dir_back && (x + y < 4 || FeatureInfo.lineMax + 3 < x + y))
-                continue;
-            Vector3Int fpos = BoardToFeature(x, y, i);
-            for (int j = 0; j < lineNum; ++j)
-                tempFs[0, i, j] = new Feature(AIFi[i, fpos.y, j]);
-            for (int j = 0; j < lineNum; ++j)
-                tempFs[1, i, j] = new Feature(playerFi[i, fpos.y, j]);
-    }
-        return tempFs;
-    }
-    /// <summary>
-    /// 根据参数存储某棋盘位置附近特征
-    /// </summary>
-    protected void SetNearbyFeatures(Feature[,,] tempFs, int x, int y)
-    {
-        for (int i = 0; i < 4; ++i)
-        {
-            if (i == dir_div && (FeatureInfo.lineMax / 2 < y - x || FeatureInfo.lineMax / 2 < x - y)
-                || i == dir_back && (x + y < 4 || FeatureInfo.lineMax + 3 < x + y))
-                continue;
-            Vector3Int fpos = BoardToFeature(x, y, i);
-            for (int j = 0; j < lineNum; ++j)
-            {
-                AIFi[i, fpos.y, j].type = tempFs[0, i, j].type;
-                AIFi[i, fpos.y, j].blocked = tempFs[0, i, j].blocked;
-            }
-            for (int j = 0; j < lineNum; ++j)
-            {
-                playerFi[i, fpos.y, j].type = tempFs[1, i, j].type;
-                playerFi[i, fpos.y, j].blocked = tempFs[1, i, j].blocked;
-            }
-        }
     }
 
     /* 以下为获取最有价值位置相关函数 */
 
     /// <summary>
-    /// 根据强特征获取必须封堵的位置
+    /// 根据强特征获取必须封堵/直接取胜的位置
     /// </summary>
-    protected List<Vector2Int> GetUrgentPositions(E_FeatureType type, int dir, int line, int loca)
+    protected List<Vector2Int> GetUrgentPositions(Feature f, bool defence = true)
     {
         // 加入可能位置
         List<Vector2Int> positions = new List<Vector2Int>();
-        switch (type)
+        switch (f.type)
         {
         case E_FeatureType.near4:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 4));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 4));
             break;
         case E_FeatureType.jump4:
-            positions.Add(FeatureToBoard(dir, line, loca + 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 2));
-            positions.Add(FeatureToBoard(dir, line, loca + 3));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 2));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 3));
             break;
         case E_FeatureType.near3:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 3));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 3));
             break;
         case E_FeatureType.jump3:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 2));
-            positions.Add(FeatureToBoard(dir, line, loca + 4));
+            if (defence)
+            {
+                positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+                positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 4));
+            }
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 2));
             break;
         }
         // 减去已有棋子或边界外位置
@@ -506,42 +428,81 @@ public class AIGamer
         return positions;
     }
     /// <summary>
-    /// 根据弱特征获取其附近有价值的位置
+    /// 根据相互配合必须封堵/直接取胜的特征计算其配合位置
     /// </summary>
-    protected List<Vector2Int> GetValuablePositions(E_FeatureType type, int dir, int line, int loca)
+    protected Vector2Int GetValuablePositions(ref List<Vector2Int> positions, List<Feature> goodFs, ref bool double3)
+    {
+        int[,] added = new int[lineNum, lineNum];
+        bool[,] is3 = new bool[lineNum, lineNum];
+        Vector2Int bestFeatures = new Vector2Int(0, 0);
+        if (goodFs.Count >= 2)
+        {
+            for (int i = 0; i < goodFs.Count; ++i)
+            {
+                foreach (Vector2Int pos in GetNearPositions(goodFs[i]))
+                    if (added[pos.x, pos.y] != 0)
+                    {
+                        positions.Add(pos);
+                        bestFeatures.x = added[pos.x, pos.y] - 1;
+                        bestFeatures.y = i;
+                        double3 = !(is3[pos.x, pos.y] || goodFs[i].type == E_FeatureType.near3 || goodFs[i].type == E_FeatureType.jump3);
+                    }
+                    else
+                    {
+                        added[pos.x, pos.y] = i + 1;
+                        if (goodFs[i].type == E_FeatureType.near3 || goodFs[i].type == E_FeatureType.jump3)
+                            is3[pos.x, pos.y] = true;
+                    }
+            }
+        }
+        return bestFeatures;
+    }
+    /// <summary>
+    /// 根据弱特征获取其附近相关的位置
+    /// </summary>
+    protected List<Vector2Int> GetNearPositions(Feature f)
     {
         // 加入可能位置
         List<Vector2Int> positions = new List<Vector2Int>();
-        switch (type)
+        switch (f.type)
         {
         case E_FeatureType.single:
-            // 单个特征必定是四个方向都有的 故只需考虑一个方向
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
             break;
         case E_FeatureType.near2:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 2));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 2));
             break;
         case E_FeatureType.jump2:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 3));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 3));
             break;
         case E_FeatureType.far2:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 2));
-            positions.Add(FeatureToBoard(dir, line, loca + 4));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 2));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 4));
             break;
         case E_FeatureType.near3:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 3));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 3));
             break;
         case E_FeatureType.jump3:
-            positions.Add(FeatureToBoard(dir, line, loca - 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 1));
-            positions.Add(FeatureToBoard(dir, line, loca + 2));
-            positions.Add(FeatureToBoard(dir, line, loca + 4));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 2));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 4));
+            break;
+        case E_FeatureType.near4:
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca - 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 4));
+            break;
+        case E_FeatureType.jump4:
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 1));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 2));
+            positions.Add(FeatureToBoard(f.dir, f.line, f.loca + 3));
             break;
         }
         // 减去已有棋子或边界外位置
@@ -555,6 +516,40 @@ public class AIGamer
         return positions;
     }
     /// <summary>
+    /// 根据所有弱特征获取其附近所有相关位置
+    /// </summary>
+    /// <param name="positions"></param>
+    /// <param name="NormalFs"></param>
+    protected void GetAllNearPositions(ref List<Vector2Int> positions, List<Feature> NormalFs)
+    {
+        // 初始化一个记录某位置是否已经加入考虑的数组
+        bool[,] added = new bool[lineNum, lineNum];
+        foreach (Feature f in NormalFs)
+        {
+            foreach (Vector2Int pos in
+                GetNearPositions(f))
+                if (!added[pos.x, pos.y])
+                {
+                    positions.Add(pos);
+                    added[pos.x, pos.y] = true;
+                }
+        }
+    }
+    /// <summary>
+    /// 将单特征纳入考虑 直到特征数量达到上限
+    /// </summary>
+    protected void AddSingleFeatures(ref List<Feature> fList, FeatureInfo fi)
+    {
+        const int maxFeatureNum = 20;
+        foreach (Feature f in fi.Features)
+        {
+            if (fList.Count > maxFeatureNum)
+                break;
+            if (f.type == E_FeatureType.single)
+                fList.Add(f);
+        }
+    }
+    /// <summary>
     /// 获取最有价值的落子位置
     /// </summary>
     /// <param name="side">当前准备落子者</param>
@@ -564,145 +559,221 @@ public class AIGamer
         FeatureInfo selfFi = side == E_Player.player ? playerFi : AIFi;
         FeatureInfo enemyFi = side == E_Player.player ? AIFi : playerFi;
         // 记录可能有价值的特征
-        List<Vector3Int> selfFeatures = new List<Vector3Int>();
-        List<Vector3Int> enemyFeatures = new List<Vector3Int>();
+        List<Feature> selfGoodFeatures = new List<Feature>();
+        List<Feature> selfNormalFeatures = new List<Feature>();
+        List<Feature> enemyGoodFeatures = new List<Feature>();
+        List<Feature> enemyNormalFeatures = new List<Feature>();
         // 记录可能有价值的位置
-        List<Vector2Int> positions = new List<Vector2Int>();
+        List<Vector2Int> atkPositions = new List<Vector2Int>();
+        List<Vector2Int> defPositions = new List<Vector2Int>();
 
         // 查找己方能成五的位置 并将己方有价值特征加入考虑
-        for (int dir = 0; dir < 4; ++dir)
+        foreach (Feature sf in selfFi.Features)
         {
-            for (int line = 0; line < FeatureInfo.lineMax; ++line)
+            switch (sf.type)
             {
-                for (int loca = 0; loca < lineNum; ++loca)
-                {
-                    switch (selfFi[dir, line, loca].type)
-                    {
-                    // 己方能成五直接返回
-                    case E_FeatureType.near4:
-                    case E_FeatureType.jump4:
-                        return GetUrgentPositions(selfFi[dir, line, loca].type, dir, line, loca);
-                    // 己方有活三价值很大 有死三纳入考虑
-                    case E_FeatureType.near3:
-                    case E_FeatureType.jump3:
-                        if (!selfFi[dir, line, loca].blocked)
-                            positions = GetUrgentPositions(selfFi[dir, line, loca].type, dir, line, loca);
-                        else
-                            selfFeatures.Add(new Vector3Int(dir, line, loca));
-                        break;
-                    // 其它特征纳入考虑
-                    case E_FeatureType.near2:
-                    case E_FeatureType.jump2:
-                    case E_FeatureType.far2:
-                    case E_FeatureType.single:
-                        selfFeatures.Add(new Vector3Int(dir, line, loca));
-                        break;
-                    // 没有特征不予考虑
-                    default:
-                        break;
-                    }
-                }
+            // 己方能成五直接返回
+            case E_FeatureType.near4:
+            case E_FeatureType.jump4:
+                return GetUrgentPositions(sf);
+            // 己方有活三价值很大 有死三价值较大
+            case E_FeatureType.near3:
+            case E_FeatureType.jump3:
+                if (sf.blocked)
+                    selfGoodFeatures.Add(new Feature(sf));
+                else
+                    atkPositions = GetUrgentPositions(sf, false);
+                    break;
+            // 活二价值较大 死二纳入考虑
+            case E_FeatureType.near2:
+            case E_FeatureType.jump2:
+            case E_FeatureType.far2:
+                if (sf.blocked)
+                    selfNormalFeatures.Add(new Feature(sf));
+                else
+                    selfGoodFeatures.Add(new Feature(sf));
+                break;
+            // 其它特征不予考虑
+            default:
+                break;
             }
         }
 
         // 查找必须封堵的位置 并将敌方有价值特征加入考虑
-        for (int dir = 0; dir < 4; ++dir)
+        foreach (Feature ef in enemyFi.Features)
         {
-            for (int line = 0; line < FeatureInfo.lineMax; ++line)
+            switch (ef.type)
             {
-                for (int loca = 0; loca < lineNum; ++loca)
-                {
-                    switch (enemyFi[dir, line, loca].type)
-                    {
-                    // 敌方有四必须封堵
-                    case E_FeatureType.near4:
-                    case E_FeatureType.jump4:
-                        return GetUrgentPositions(enemyFi[dir, line, loca].type, dir, line, loca);
-                    // 敌方有活三急需封堵 有死三纳入考虑
-                    case E_FeatureType.near3:
-                    case E_FeatureType.jump3:
-                        if (!enemyFi[dir, line, loca].blocked)
-                        {
-                            foreach (Vector2Int pos in GetUrgentPositions(enemyFi[dir, line, loca].type, dir, line, loca))
-                                positions.Add(pos);
-                            return positions;
-                        }
-                        else
-                            enemyFeatures.Add(new Vector3Int(dir, line, loca));
-                        break;
-                    // 敌方有二纳入考虑
-                    case E_FeatureType.near2:
-                    case E_FeatureType.jump2:
-                    case E_FeatureType.far2:
-                        enemyFeatures.Add(new Vector3Int(dir, line, loca));
-                        break;
-                    // 其它特征不予考虑
-                    default:
-                        break;
-                    }
-                }
+            // 敌方有四必须封堵
+            case E_FeatureType.near4:
+            case E_FeatureType.jump4:
+                return GetUrgentPositions(ef);
+            // 敌方有活三急需封堵 有死三需要警惕
+            case E_FeatureType.near3:
+            case E_FeatureType.jump3:
+                if (ef.blocked)
+                    enemyGoodFeatures.Add(new Feature(ef));
+                else
+                    defPositions = GetUrgentPositions(ef);
+                break;
+            // 敌方有活二需要警惕 有死二纳入考虑
+            case E_FeatureType.near2:
+            case E_FeatureType.jump2:
+            case E_FeatureType.far2:
+                if (ef.blocked)
+                    enemyNormalFeatures.Add(new Feature(ef));
+                else
+                    enemyGoodFeatures.Add(new Feature(ef));
+                break;
+            // 其它特征不予考虑
+            default:
+                break;
             }
         }
 
-        // 返回可能存在的己方成四的机会
-        if (positions.Count > 0)
-            return positions;
+        // 返回可能存在的己方成活四的机会
+        if (atkPositions.Count > 0)
+            return atkPositions;
+        // 返回封堵敌方活三的位置
+        if (defPositions.Count > 0)
+            return defPositions;
+
+        // 计算强力进攻位置(非双三)
+        bool selfDouble3 = false;
+        GetValuablePositions(ref atkPositions, selfGoodFeatures, ref selfDouble3);
+        if (atkPositions.Count > 0 && !selfDouble3)
+            return atkPositions;
+
+        // 考虑是否存在急需防守位置
+        bool enemyDouble3 = false;
+        Vector2Int defPos = GetValuablePositions(ref defPositions, enemyGoodFeatures, ref enemyDouble3);
+        if (defPositions.Count > 0)
+        {
+            // 重新计算所有可防守位置
+            defPositions.Clear();
+            bool[,] added = new bool[lineNum, lineNum];
+            foreach (Vector2Int pos in GetNearPositions(enemyGoodFeatures[defPos.x]))
+                if (!added[pos.x, pos.y])
+                {
+                    defPositions.Add(pos);
+                    added[pos.x, pos.y] = true;
+                }
+            foreach (Vector2Int pos in GetNearPositions(enemyGoodFeatures[defPos.y]))
+                if (!added[pos.x, pos.y])
+                {
+                    defPositions.Add(pos);
+                    added[pos.x, pos.y] = true;
+                }
+            return defPositions;
+        }
+
+        // 考虑自己的双三
+        if (atkPositions.Count > 0)
+            return atkPositions;
+
+        // 将没有配合的较强特征化为普通特征
+        //foreach (Feature sf in selfGoodFeatures)
+        //    selfNormalFeatures.Add(sf);
+        //foreach (Feature ef in enemyGoodFeatures)
+        //    enemyNormalFeatures.Add(ef);
+
+        // 没有二及以上的特征时考虑所有单特征
+        bool allSingle = selfNormalFeatures.Count == 0 && enemyNormalFeatures.Count == 0;
+
+        // 将所有单特征存到selfNormalFeatures中
+        AddSingleFeatures(ref selfNormalFeatures, selfFi);
+        AddSingleFeatures(ref enemyNormalFeatures, enemyFi);
 
         // 计算加入考虑的特征附近有价值的位置
-        if (selfFeatures.Count > 0 || enemyFeatures.Count > 0)
+        if (selfNormalFeatures.Count > 0 || enemyNormalFeatures.Count > 0)
         {
-            // 初始化一个记录某位置是否已经加入考虑的数组
-            bool[,] added = new bool[lineNum, lineNum];
-            // 计算防守位置
-            foreach (Vector3Int f in enemyFeatures)
+            // 只有单特征时考虑所有位置
+            if (allSingle)
             {
-                foreach (Vector2Int pos in 
-                    GetValuablePositions(enemyFi[f.x, f.y, f.z].type, f.x,  f.y, f.z))
-                    if (!added[pos.x, pos.y])
-                    {
-                        positions.Add(pos);
-                        added[pos.x, pos.y] = true;
-                    }
+                foreach (Feature ef in enemyNormalFeatures)
+                    selfNormalFeatures.Add(ef);
+                GetAllNearPositions(ref atkPositions, selfNormalFeatures);
+                return atkPositions;
+            }
+            // 计算防守位置
+            if (enemyNormalFeatures.Count > 0)
+            {
+                GetAllNearPositions(ref defPositions, enemyNormalFeatures);
+                return defPositions;
             }
             // 计算进攻位置
-            foreach (Vector3Int f in selfFeatures)
+            else
             {
-                foreach (Vector2Int pos in
-                    GetValuablePositions(selfFi[f.x, f.y, f.z].type, f.x, f.y, f.z))
-                    if (!added[pos.x, pos.y])
-                    {
-                        positions.Add(pos);
-                        added[pos.x, pos.y] = true;
-                    }
+                GetAllNearPositions(ref atkPositions, selfNormalFeatures);
+                return atkPositions;
             }
-            return positions;
         }
 
-        // 没有合适特征时 返回所有空位
+        // 没有任何特征时 返回所有空位
         for (int i = 0; i < lineNum; ++i)
             for (int j = 0; j < lineNum; ++j)
                 if (board[i, j] == E_Cross.none)
-                    positions.Add(new Vector2Int(i, j));
-        return positions;
+                    atkPositions.Add(new Vector2Int(i, j));
+        return atkPositions;
     }
 
     /* 以下为α-β剪枝搜索相关函数 */
-    protected int AlphaBetaSearch()
+    protected void AlphaBetaSearch()
     {
-        return MaxValue(int.MinValue, int.MaxValue, 0);
+        nodeNum = 0;
+        curDepth = 2;
+        int maxValue = int.MinValue;
+        int curValue;
+        while (curDepth <= maxDepth && nodeNum <= maxNodeNum)
+        {
+            curValue = MaxValue(int.MinValue, int.MaxValue, 0);
+#if DEBUG_EVERYDEPTH_EVAL
+            Debug.Log(string.Format("搜索深度：{0} 评价值：{1, -10}位置：{2}", curDepth, curValue, curNextPos));
+#endif
+            if (curValue > maxValue)
+            {
+                maxValue = curValue;
+                nextPos = curNextPos;
+            }
+            curDepth += 1;
+        }
+#if DEBUG_EVAL
+        Debug.Log(string.Format("最大评价值：{0, -10}最佳位置：{1}", maxValue, nextPos));
+#endif
     }
     protected int MaxValue(int alpha, int beta, int depth)
     {
-        if (depth >= maxDepth)
+        ++nodeNum;
+        if (depth >= curDepth || nodeNum >= maxNodeNum)
+        {
+#if DEBUG_MAXDEPTH
+            if (depth > curMaxDepth)
+                curMaxDepth = depth;
+#endif
             return Eval();
+        }
         int eval = int.MinValue;
         int curEval;
 
         List<Vector2Int> positions = GetBestPositions(E_Player.AI);
+        // 只有一个可能的位置时无需继续考虑
+        if (positions.Count == 1)
+        {
+            // 更新特征
+            board[positions[0].x, positions[0].y] = E_Cross.AI;
+            UpdateAllFeatures(positions[0].x, positions[0].y);
+            eval = Eval();
+            if (depth == 0)
+                curNextPos = positions[0];
+            // 恢复特征
+            board[positions[0].x, positions[0].y] = E_Cross.none;
+            UpdateAllFeatures(positions[0].x, positions[0].y);
+            return eval;
+        }
+
+        // 考虑所有有价值位置
         foreach (Vector2Int pos in positions)
         {
-            // 存储更新前特征
-            //List<Feature> fList = GetNearbyFeatures(pos.x, pos.y);
             // 更新特征
             board[pos.x, pos.y] = E_Cross.AI;
             UpdateAllFeatures(pos.x, pos.y);
@@ -710,11 +781,9 @@ public class AIGamer
             if (curEval > eval)
             {
                 eval = curEval;
+                // 只有位于最浅层时才设定下一步位置
                 if (depth == 0)
-                {
-                    nextPos.x = pos.x;
-                    nextPos.y = pos.y;
-                }
+                    curNextPos = pos;
 #if DEBUG_SEARCH
                 Debug.Log(string.Format("当前最大评价函数：{0, -10}当前位置{1}", eval, nextPos));
 #endif
@@ -722,7 +791,6 @@ public class AIGamer
             // 恢复特征
             board[pos.x, pos.y] = E_Cross.none;
             UpdateAllFeatures(pos.x, pos.y);
-            //SetNearbyFeatures(fList, pos.x, pos.y);
             if (eval >= beta)
                 return eval;
             alpha = Mathf.Max(alpha, eval);
@@ -731,14 +799,34 @@ public class AIGamer
     }
     protected int MinValue(int alpha, int beta, int depth)
     {
-        if (depth >= maxDepth)
+        ++nodeNum;
+        if (depth >= curDepth || nodeNum >= maxNodeNum)
+        {
+#if DEBUG_MAXDEPTH
+            if (depth > curMaxDepth)
+                curMaxDepth = depth;
+#endif
             return Eval();
+        }
         int eval = int.MaxValue;
         List<Vector2Int> positions = GetBestPositions(E_Player.player);
+
+        // 只有一个可能的位置时无需继续考虑
+        if (positions.Count == 1)
+        {
+            // 更新特征
+            board[positions[0].x, positions[0].y] = E_Cross.AI;
+            UpdateAllFeatures(positions[0].x, positions[0].y);
+            eval = Eval();
+            // 恢复特征
+            board[positions[0].x, positions[0].y] = E_Cross.none;
+            UpdateAllFeatures(positions[0].x, positions[0].y);
+            return eval;
+        }
+
+        // 考虑所有有价值位置
         foreach (Vector2Int pos in positions)
         {
-            // 存储更新前特征
-            Feature[,,] tempFs = GetNearbyFeatures(pos.x, pos.y);
             // 更新特征
             board[pos.x, pos.y] = E_Cross.player;
             UpdateAllFeatures(pos.x, pos.y);
@@ -746,7 +834,6 @@ public class AIGamer
             // 恢复特征
             board[pos.x, pos.y] = E_Cross.none;
             UpdateAllFeatures(pos.x, pos.y);
-            //SetNearbyFeatures(tempFs, pos.x, pos.y);
             if (eval <= alpha)
                 return eval;
             beta = Mathf.Min(beta, eval);
@@ -785,6 +872,22 @@ public class AIGamer
             return new Vector3Int(dir, FeatureInfo.lineMax + 3 - x - y, x);
         default:
             return new Vector3Int(-1, -1, -1);
+        }
+    }
+    protected bool IsAttached_BF(int x, int y, int dir, int line)
+    {
+        switch (dir)
+        {
+        case dir_hor:
+            return y == line;
+        case dir_ver:
+            return x == line;
+        case dir_div:
+            return y - x == FeatureInfo.lineMax / 2 - line;
+        case dir_back:
+            return x + y == FeatureInfo.lineMax + 3 - line;
+        default:
+            return false;
         }
     }
 }
