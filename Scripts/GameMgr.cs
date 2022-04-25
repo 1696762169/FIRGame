@@ -23,10 +23,6 @@ public class GameMgr : MonoBehaviour
     public int maxDepth;
     [Tooltip("最大搜索结点数")]
     public int maxNodeNum;
-    [Tooltip("玩家先手时玩家的评价函数与AI相对比例")]
-    public float playerFirstEvalScale;
-    [Tooltip("AI先手时玩家的评价函数与AI相对比例")]
-    public float AIFirstEvalScale;
 
     public E_PieceType CurPiece         // 当前棋子
     {

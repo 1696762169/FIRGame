@@ -16,9 +16,6 @@ public class StartPanel : BasePanel
         // 设置游戏初始值
         GameMgr.Instance.GameStart();
 
-        // 开启棋盘按钮
-        Chessboard.Instance.gameObject.GetComponent<UIButton>().enabled = true;
-
         // 设置面板
         PlayPanel.Instance.ShowMe();
         HideMe();
